@@ -11,12 +11,23 @@ http://koozyt.github.io/qboard_arduino_stm32/package_koozyt_qboard_index.json,ht
 2-2. 
 */
 
+// Only two customizable variables
+const int ORIG_FPS = 1000 ;           // loop()が秒間何回呼ばれるか。Q Boardなら1000固定。
+const double LOOP_THR = 80000000 ;    // 繰り返しと判定されるスレッショルド。加速度として得られる値の二乗に比例。
+
+const int PROCESS_FPS = 20 ;  // 実際に自己相関計算を行うサンプル単位
+const double WINDOW_HALF_SIZE_IN_SEC = 0.8 ; // 計算を行うウィンドウサイズ。小さい方がきびきび反応するが、遅い周期を検出できない。大きい方が遅い運動を検出できるが、動かし始めてからカウントアップ開始までの時間、止めてからカウント停止までの時間が遅くなる。
+
 #include <QBoard_FreeIMU.h>
 #include <float.h>
 
+// consts
+const int WINDOW_HALF_SIZE = (int)(PROCESS_FPS * WINDOW_HALF_SIZE_IN_SEC) ;
+const int AVERAGE_WINDOW_SIZE = (ORIG_FPS/PROCESS_FPS) ;// raw input average factor
+const int MINIMUM_OFFSET = PROCESS_FPS * 1 / 5 ;
+const int WINDOW_SIZE = WINDOW_HALF_SIZE * 2 ;
+
 const int BLE_PIN = 5;
-const int INTERVAL = 60;//msec
-unsigned long last_time = 0;
 FreeIMU imu = FreeIMU();
 
 void setup() {
@@ -31,25 +42,19 @@ void setup() {
   pinMode(BLE_PIN, OUTPUT);
   digitalWrite(BLE_PIN, HIGH);
   SPI_2.begin(BLE_PIN);
+
 }
 
-const int LOG_COMPARE_LEN = 7 ;
-const int LOG_AV_COUNT = 2 ;
-const double LOOP_THR = 4000 * LOG_COMPARE_LEN ;
-const int MINIMUM_OFFSET = 4 ;
-
-
-
-const int LOGLEN = LOG_COMPARE_LEN * 2 ;
 
 double raw_accel[3] ;
-int raw_accel_count = LOG_AV_COUNT ;
+int raw_accel_count = AVERAGE_WINDOW_SIZE ;
 
 
-double pastlog[LOGLEN][3] ;
+double accel_diff_log[WINDOW_SIZE][3] ;
+double accel_log[WINDOW_SIZE][3] ;
 int logpos = 0 ;
 
-double prevaccel[3] ;
+//double prevaccel[3] ;
 
 
 // 0: stopped 1: finding loop 2: counting
@@ -61,12 +66,12 @@ int loopInterv_countdown ;
 void setMode(char inChar) {
   if ( inChar == 's' ) {
     mode = 1 ;
-    for ( int i = 0; i < LOGLEN; ++i )
-      pastlog[i][0] = pastlog[i][1] = pastlog[i][2] = 0 ;
+    for ( int i = 0; i < WINDOW_SIZE; ++i )
+      accel_diff_log[i][0] = accel_diff_log[i][1] = accel_diff_log[i][2] = 0 ;
     logpos = 0 ;
 
     raw_accel[0] = raw_accel[1] = raw_accel[2] = 0 ;
-    raw_accel_count = LOG_AV_COUNT ;
+    raw_accel_count = AVERAGE_WINDOW_SIZE ;
 
     //      Bean.setLed(255, 0, 0);
   } else if ( inChar == 'e' ) {
@@ -77,6 +82,9 @@ void setMode(char inChar) {
 }
 
 void loop() {
+    //Serial.print( "." ) ;
+    //Serial.flush() ;
+
   if ( Serial.available() > 0 ) {
     char inChar = Serial.read();
     setMode(inChar);
@@ -91,62 +99,83 @@ void loop() {
   }
 
   if ( mode == 0 ) {
-    //    Bean.sleep(100);
     delay(100);
     return ;
   }
 
-  //  AccelerationReading accel = Bean.getAcceleration();
-  //  raw_accel[0] += accel.xAxis ;
-  //  raw_accel[1] += accel.yAxis ;
-  //  raw_accel[2] += accel.zAxis ;
-
   float fvalues[9];
   imu.getValues(fvalues);
 
+  // raw_accel is for averaging raw input
   raw_accel[0] += fvalues[0];
   raw_accel[1] += fvalues[1];
   raw_accel[2] += fvalues[2];
 
   if ( --raw_accel_count != 0 ) return ;
-  raw_accel_count = LOG_AV_COUNT ;
-  raw_accel[0] /= LOG_AV_COUNT ;
-  raw_accel[1] /= LOG_AV_COUNT ;
-  raw_accel[2] /= LOG_AV_COUNT ;
 
-  pastlog[logpos][0] = raw_accel[0] - prevaccel[0] ;
-  pastlog[logpos][1] = raw_accel[1] - prevaccel[1] ;
-  pastlog[logpos][2] = raw_accel[2] - prevaccel[2] ;
+  raw_accel_count = AVERAGE_WINDOW_SIZE ;
+  raw_accel[0] /= AVERAGE_WINDOW_SIZE ;
+  raw_accel[1] /= AVERAGE_WINDOW_SIZE ;
+  raw_accel[2] /= AVERAGE_WINDOW_SIZE ;
 
-  prevaccel[0] = raw_accel[0] ;
-  prevaccel[1] = raw_accel[1] ;
-  prevaccel[2] = raw_accel[2] ;
+  accel_log[logpos][0] = raw_accel[0] ;
+  accel_log[logpos][1] = raw_accel[1] ;
+  accel_log[logpos][2] = raw_accel[2] ;
+
+  accel_diff_log[logpos][0] = raw_accel[0] - accel_log[(logpos+1)%WINDOW_SIZE][0] ;
+  accel_diff_log[logpos][1] = raw_accel[1] - accel_log[(logpos+1)%WINDOW_SIZE][1] ;
+  accel_diff_log[logpos][2] = raw_accel[2] - accel_log[(logpos+1)%WINDOW_SIZE][2] ;
+
+//  accel_diff_log[logpos][0] = raw_accel[0] - prevaccel[0] ;
+//  accel_diff_log[logpos][1] = raw_accel[1] - prevaccel[1] ;
+//  accel_diff_log[logpos][2] = raw_accel[2] - prevaccel[2] ;
+//  prevaccel[0] = raw_accel[0] ;
+//  prevaccel[1] = raw_accel[1] ;
+//  prevaccel[2] = raw_accel[2] ;
 
   raw_accel[0] = raw_accel[1] = raw_accel[2] = 0 ;
 
-  boolean bIncreasing = false ;
-  double prevCorr = DBL_MAX ;
+
+  double av_accel[3] = {0,0,0} ;
   int i ;
-  for ( i = MINIMUM_OFFSET; i < LOGLEN - LOG_COMPARE_LEN; ++i ) {
-    double corr = 0 ;
-    for ( int j = 0; j < LOG_COMPARE_LEN; ++j ) {
-      int s1 = (logpos  + j) % LOGLEN ;
-      int s2 = (logpos + i + j) % LOGLEN ;
-      corr += pastlog[s1][0] * pastlog[s2][0] + pastlog[s1][1] * pastlog[s2][1] + pastlog[s1][2] * pastlog[s2][2] ;
+  for( i=0;i<WINDOW_SIZE;++i ){
+    av_accel[0] += accel_log[i][0] ;
+    av_accel[1] += accel_log[i][1] ;
+    av_accel[2] += accel_log[i][2] ;
+  }
+  av_accel[0] /= WINDOW_SIZE ;
+  av_accel[1] /= WINDOW_SIZE ;
+  av_accel[2] /= WINDOW_SIZE ;
+
+  boolean bIncreasing = false ;
+  double prevCorr = DBL_MAX , prevOri = 0 ;
+  for ( i = MINIMUM_OFFSET; i < WINDOW_SIZE - WINDOW_HALF_SIZE; ++i ) {
+    double corr = 0 , ori = 0 ;
+    for ( int j = 0; j < WINDOW_HALF_SIZE; ++j ) {
+      int s1 = (logpos  + j) % WINDOW_SIZE ;
+      int s2 = (logpos + i + j) % WINDOW_SIZE ;
+      corr += (accel_diff_log[s1][0] * accel_diff_log[s2][0] + accel_diff_log[s1][1] * accel_diff_log[s2][1] + accel_diff_log[s1][2] * accel_diff_log[s2][2])/(LOOP_THR*WINDOW_HALF_SIZE) ;
+
+      double cross_product_x = (accel_diff_log[s1][1]*accel_diff_log[s2][2] - accel_diff_log[s1][2]*accel_diff_log[s2][1])/LOOP_THR ;
+      double cross_product_y = (accel_diff_log[s1][2]*accel_diff_log[s2][0] - accel_diff_log[s1][0]*accel_diff_log[s2][2])/LOOP_THR ;
+      double cross_product_z = (accel_diff_log[s1][0]*accel_diff_log[s2][1] - accel_diff_log[s1][1]*accel_diff_log[s2][0])/LOOP_THR ;
+
+      ori += cross_product_x * av_accel[0] + cross_product_y * av_accel[1] + cross_product_z * av_accel[2] ;
     }
 
     if ( !bIncreasing && prevCorr < corr ) bIncreasing = true ;
-    else if ( bIncreasing && prevCorr > corr ) {
-      //prevCorr = corr ;
+    else if ( bIncreasing && prevCorr > corr ) {// スコアが減少に転じた
       break ;
     }
     prevCorr = corr ;
+    prevOri = ori ;
   }
   double peak = prevCorr ;
+  double peakori = prevOri ;
 
-  logpos = (logpos + (LOGLEN - 1)) % LOGLEN ;
+  logpos = (logpos + (WINDOW_SIZE - 1)) % WINDOW_SIZE ;
 
-  if ( i == LOGLEN || peak < LOOP_THR ) {
+  if ( i == WINDOW_SIZE || peak < 1 ) {
     loopInterv = -1 ; // Loop reset
     return ;
   }
@@ -157,17 +186,8 @@ void loop() {
     loopInterv_countdown = i ;
     //Serial.print( "H" ) ;
   } else if (--loopInterv_countdown == 0 ) {
-    Serial.print( "H" ) ;
-
-    unsigned long time = millis();
-    unsigned long dt = time - last_time;
-    if (dt >= INTERVAL) {
-      char spi_buffer = 'H';
-      SPI_2.transfer(BLE_PIN, &spi_buffer, sizeof(spi_buffer));
-    }
-
-    //Serial.print( loopInterv ) ;
+    Serial.print( peakori>0 ? "R" : "L" ) ;
+    //Serial.println(peakori) ;
     loopInterv_countdown = loopInterv ;
   }
-  //Bean.sleep(1000/15);
 }
