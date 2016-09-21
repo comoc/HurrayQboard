@@ -56,7 +56,6 @@ double accel_diff_log[WINDOW_SIZE][3] ;
 double accel_log[WINDOW_SIZE][3] ;
 int logpos = 0 ;
 
-//double prevaccel[3] ;
 
 
 // 0: stopped 1: finding loop 2: counting
@@ -64,6 +63,8 @@ int mode = 0 ;
 
 int loopInterv = -1 ;
 int loopInterv_countdown ;
+
+double gravity[3] = {0,0,0} ;
 
 void setMode(char inChar) {
   if ( inChar == 's' ) {
@@ -75,6 +76,7 @@ void setMode(char inChar) {
     raw_accel[0] = raw_accel[1] = raw_accel[2] = 0 ;
     raw_accel_count = AVERAGE_WINDOW_SIZE ;
 
+    gravity[0] = gravity[1] = gravity[2] = 0 ;
     //      Bean.setLed(255, 0, 0);
   } else if ( inChar == 'e' ) {
     //      Bean.setLed(0, 0, 0);
@@ -124,30 +126,26 @@ void loop() {
   accel_log[logpos][1] = raw_accel[1] ;
   accel_log[logpos][2] = raw_accel[2] ;
 
-  accel_diff_log[logpos][0] = raw_accel[0] - accel_log[(logpos+1)%WINDOW_SIZE][0] ;
-  accel_diff_log[logpos][1] = raw_accel[1] - accel_log[(logpos+1)%WINDOW_SIZE][1] ;
-  accel_diff_log[logpos][2] = raw_accel[2] - accel_log[(logpos+1)%WINDOW_SIZE][2] ;
-
-//  accel_diff_log[logpos][0] = raw_accel[0] - prevaccel[0] ;
-//  accel_diff_log[logpos][1] = raw_accel[1] - prevaccel[1] ;
-//  accel_diff_log[logpos][2] = raw_accel[2] - prevaccel[2] ;
-//  prevaccel[0] = raw_accel[0] ;
-//  prevaccel[1] = raw_accel[1] ;
-//  prevaccel[2] = raw_accel[2] ;
-
   raw_accel[0] = raw_accel[1] = raw_accel[2] = 0 ;
 
+  int prevlogpos = (logpos+1)%WINDOW_SIZE ;
+  accel_diff_log[logpos][0] = accel_log[logpos][0] - accel_log[prevlogpos][0] ;
+  accel_diff_log[logpos][1] = accel_log[logpos][1] - accel_log[prevlogpos][1] ;
+  accel_diff_log[logpos][2] = accel_log[logpos][2] - accel_log[prevlogpos][2] ;
 
-  double av_accel[3] = {0,0,0} ;
   int i ;
-  for( i=0;i<WINDOW_SIZE;++i ){
-    av_accel[0] += accel_log[i][0] ;
-    av_accel[1] += accel_log[i][1] ;
-    av_accel[2] += accel_log[i][2] ;
+
+  if( logpos == 1 && gravity[0] == 0 && gravity[1] == 0 && gravity[2] == 0 ){
+    for( i=0;i<WINDOW_SIZE;++i ){
+      gravity[0] += accel_log[i][0] ;
+      gravity[1] += accel_log[i][1] ;
+      gravity[2] += accel_log[i][2] ;
+    }
+    gravity[0] /= WINDOW_SIZE ;
+    gravity[1] /= WINDOW_SIZE ;
+    gravity[2] /= WINDOW_SIZE ;
+    Serial.print(">");
   }
-  av_accel[0] /= WINDOW_SIZE ;
-  av_accel[1] /= WINDOW_SIZE ;
-  av_accel[2] /= WINDOW_SIZE ;
 
   boolean bIncreasing = false ;
   double prevCorr = DBL_MAX , prevOri = 0 ;
@@ -162,7 +160,7 @@ void loop() {
       double cross_product_y = (accel_diff_log[s1][2]*accel_diff_log[s2][0] - accel_diff_log[s1][0]*accel_diff_log[s2][2])/LOOP_THR ;
       double cross_product_z = (accel_diff_log[s1][0]*accel_diff_log[s2][1] - accel_diff_log[s1][1]*accel_diff_log[s2][0])/LOOP_THR ;
 
-      ori += cross_product_x * av_accel[0] + cross_product_y * av_accel[1] + cross_product_z * av_accel[2] ;
+      ori += cross_product_x * gravity[0] + cross_product_y * gravity[1] + cross_product_z * gravity[2] ;
     }
 
     if ( !bIncreasing && prevCorr < corr ) bIncreasing = true ;
