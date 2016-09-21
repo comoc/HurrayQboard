@@ -1,14 +1,16 @@
 /*
-1. ビルドの準備
+1. 書き込みの準備
 1-1.「環境設定」から追加のボードマネージャのURLに下記の1行を追加する。
 http://koozyt.github.io/qboard_arduino_stm32/package_koozyt_qboard_index.json,http://koozyt.github.io/qboard_arduino_nrf51/package_koozyt_qboard-nrf51_index.json
 1-2.「ツール」→「ボード」→「ボードマネージャ」から「Koozyt Q.board」で始まる2つのパッケージを追加する。
-1-3. Q.boardを接続する
-1-4. 
+1-3. 下記URLからQ.board用のFree IMUをダウンロードしインストールする
+https://github.com/koozyt/qboard_freeimu
+1-4. Q.boardを接続する
 
-2. ビルド
+2. 書き込み
 2-1. 「ツール」→「ボード」→「Koozyt Q.board (Native USB Port)」を選択する
-2-2. 
+2-2. 「ツール」→「シリアルポート」からQ.boardが接続されているシリアルポートを選択する
+2-3. 「スケッチ」→「マイコンボードに書き込む」
 */
 
 // Only two customizable variables
