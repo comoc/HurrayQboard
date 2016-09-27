@@ -13,7 +13,8 @@ https://github.com/koozyt/qboard_freeimu
 2-3. 「スケッチ」→「マイコンボードに書き込む」
 */
 
-// Only two customizable variables
+// Customizable variables
+const boolean DYNAMIC_GRAVITY = true ;  // 重力方向を動的に計算
 const int ORIG_FPS = 1000 ;           // loop()が秒間何回呼ばれるか。Q Boardなら1000固定。
 const double LOOP_THR = 50000000 ;    // 繰り返しと判定されるスレッショルド。加速度として得られる値の二乗に比例。
 const double ROTATE_THR = 1.0 ;    // 回転しているかどうかのスレッショルド。（未確認だが固定でいいのかも？）
@@ -55,6 +56,7 @@ void setup() {
 double raw_accel[3] ;
 int raw_accel_count = AVERAGE_WINDOW_SIZE ;
 double accel_log[WINDOW_SIZE][3] ;
+double accel_log_raw[WINDOW_SIZE][3] ;
 int logpos = 0 ;
 
 
@@ -122,46 +124,49 @@ void loop() {
   raw_accel[2] /= AVERAGE_WINDOW_SIZE ;
 
   
-  if( gravity[0] == 0 && gravity[1] == 0 && gravity[2] == 0 ){
-    accel_log[logpos][0] = raw_accel[0] ;
-    accel_log[logpos][1] = raw_accel[1] ;
-    accel_log[logpos][2] = raw_accel[2] ;
+  accel_log_raw[logpos][0] = raw_accel[0] ;
+  accel_log_raw[logpos][1] = raw_accel[1] ;
+  accel_log_raw[logpos][2] = raw_accel[2] ;
 
-    if( logpos == 1 ){ // 一周した. gravityとgravity_normを計算
+  accel_log[logpos][0] = raw_accel[0] - gravity[0] ;
+  accel_log[logpos][1] = raw_accel[1] - gravity[1] ;
+  accel_log[logpos][2] = raw_accel[2] - gravity[2] ;
+
+  if( DYNAMIC_GRAVITY || (gravity[0] == 0 && gravity[1] == 0 && gravity[2] == 0) ){
+    if( DYNAMIC_GRAVITY || logpos == 1 ){ // 一周した. gravityとgravity_normを計算
+
+      gravity[0] = gravity[1] = gravity[2] = 0 ;
+      
       for( int i=0;i<WINDOW_SIZE;++i ){
-        gravity[0] += accel_log[i][0] ;
-        gravity[1] += accel_log[i][1] ;
-        gravity[2] += accel_log[i][2] ;
-        accel_log[i][0] = accel_log[i][1] = accel_log[i][2] = 0 ;
+        gravity[0] += accel_log_raw[i][0] ;
+        gravity[1] += accel_log_raw[i][1] ;
+        gravity[2] += accel_log_raw[i][2] ;
       }
       gravity[0] /= WINDOW_SIZE ;
       gravity[1] /= WINDOW_SIZE ;
       gravity[2] /= WINDOW_SIZE ;
 
-      Serial.print("G") ;
+      if( !DYNAMIC_GRAVITY ){
+        Serial.print("G") ;
       /*Serial.print(gravity[0]);
       Serial.print(",");
       Serial.print(gravity[1]);
       Serial.print(",");
       Serial.println(gravity[2]);*/
+      }
 
       double glen = sqrt(gravity[0]*gravity[0] + gravity[1]*gravity[1] + gravity[2]*gravity[2] ) ;
       gravity_norm[0] = gravity[0]/glen ;
       gravity_norm[1] = gravity[1]/glen ;
       gravity_norm[2] = gravity[2]/glen ;
     }
-    logpos = (logpos + (WINDOW_SIZE - 1)) % WINDOW_SIZE ;
-    return ;
+
+    if( !DYNAMIC_GRAVITY ){
+      // Increment logpos
+      logpos = (logpos + (WINDOW_SIZE - 1)) % WINDOW_SIZE ;
+      return ;
+    }
   }
-
-  raw_accel[0] -= gravity[0] ;
-  raw_accel[1] -= gravity[1] ;
-  raw_accel[2] -= gravity[2] ;
-
-  // 重力と垂直な成分のみ用いる
-  accel_log[logpos][0] = raw_accel[1]*gravity_norm[2] - raw_accel[2]*gravity_norm[1] ;
-  accel_log[logpos][1] = raw_accel[2]*gravity_norm[0] - raw_accel[0]*gravity_norm[2] ;
-  accel_log[logpos][2] = raw_accel[0]*gravity_norm[1] - raw_accel[1]*gravity_norm[0] ;
 
   raw_accel[0] = raw_accel[1] = raw_accel[2] = 0 ;
 
