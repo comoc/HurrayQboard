@@ -163,7 +163,7 @@ void loop() {
   if( best_wl != wl_id-1  && best_wl_power > LOOP_CHECK_THR ){
     if( OUTPUT_LR_FREQUENTLY ){
       boolean bOri = ( ( best_t1>best_t2 && best_t1-best_t2 >= M_PI ) || ( best_t1<=best_t2 && best_t2-best_t1 < M_PI ) ) ;
-      Serial.print( bOri?"L":"R" ) ;
+      Serial.print( bOri?"R":"L" ) ;
       //Serial.println( best_wl_power ) ;
       //Serial.print( prev_best_t1 > best_t0 ?"R":"L" ) ;
     } else if( (no_out_countdown==0 || --no_out_countdown == 0) && prev_best_t0 != DBL_MAX && prev_best_t0 * best_t0 <= 0 ){
@@ -172,7 +172,7 @@ void loop() {
       no_out_countdown = (best_wl + WAVELEN_MIN) / 3 ; // あんまりすぐに次の表示はしない
       boolean bOri = ( ( best_t1>best_t2 && best_t1-best_t2 >= M_PI ) || ( best_t1<=best_t2 && best_t2-best_t1 < M_PI ) ) ;
 
-      Serial.print( bOri?"L":"R" ) ;
+      Serial.print( bOri?"R":"L" ) ;
       //Serial.print( bOri?"R:":"L:" ) ;
       //Serial.println( wavelen_sec ) ;
       //Serial.println( best_wl_power ) ;
