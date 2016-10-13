@@ -25,7 +25,7 @@ const double WAVELENGTH_STEP_SEC = 0.1 ;
 const double LOOP_CHECK_THR =400000 ;
 //const double LOOP_CHECK_THR =1500000 ;
 
-const int PROCESS_FPS = 20 ;    // 平滑化後FPS
+const int PROCESS_FPS = 15 ;    // 平滑化後FPS
 
 
 #include <QBoard_FreeIMU.h>
