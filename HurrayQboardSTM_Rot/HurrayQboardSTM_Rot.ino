@@ -13,14 +13,17 @@ https://github.com/koozyt/qboard_freeimu
 2-3. 「スケッチ」→「マイコンボードに書き込む」
 */
 
+const boolean OUTPUT_LR_FREQUENTLY = false ;
+
 // １波長の最長長(秒単位
-const double WAVELENGTH_MAX_SEC = 2.5 ;
+const double WAVELENGTH_MAX_SEC = 2.1 ;
 // １波長の最短長(秒単位
 const double WAVELENGTH_MIN_SEC = 0.5 ;
 // チェックする波長長の刻み
 const double WAVELENGTH_STEP_SEC = 0.1 ;
 // 回転されたと判断するスレッショルド
-const double LOOP_CHECK_THR = 1100000 ;
+const double LOOP_CHECK_THR =400000 ;
+//const double LOOP_CHECK_THR =1500000 ;
 
 const int PROCESS_FPS = 20 ;    // 平滑化後FPS
 
@@ -41,12 +44,12 @@ const int WAVELEN_STEP = (int)(PROCESS_FPS * WAVELENGTH_STEP_SEC) ;
 const int BLE_PIN = 5;
 FreeIMU imu = FreeIMU();
 
-double raw_accel[2] ;
+double raw_accel[3] ;
 int raw_accel_count = AVERAGE_WINDOW_SIZE ;
-double accel_log[SAMPLES][2] ;
+double accel_log[SAMPLES][3] ;
 int logpos = 0 ;
 
-double cos_tbl[1+(WAVELEN_MAX-WAVELEN_MIN)/WAVELEN_STEP][SAMPLES] ;
+double cos_tbl[1+(WAVELEN_MAX-WAVELEN_MIN)/WAVELEN_STEP][SAMPLES*2] ;
 double sin_offs[1+(WAVELEN_MAX-WAVELEN_MIN)/WAVELEN_STEP] ;
 
 int no_out_countdown  ;
@@ -66,7 +69,7 @@ void setup() {
   SPI_2.begin(BLE_PIN);
 
   logpos = 0 ;
-  raw_accel[0] = raw_accel[1] = 0 ;
+  raw_accel[0] = raw_accel[1] = raw_accel[2] = 0 ;
   raw_accel_count = AVERAGE_WINDOW_SIZE ;
 
   no_out_countdown = 0 ;
@@ -77,7 +80,7 @@ void setup() {
   for( int wavelen = WAVELEN_MIN ; wavelen <= WAVELEN_MAX ; wavelen += WAVELEN_STEP , ++wl_id ){
     double* tbl_tgt = cos_tbl[wl_id] ;
     sin_offs[wl_id] = (int)(wavelen*3/4) ;
-    for( int i=0;i<SAMPLES;++i ){
+    for( int i=0;i<SAMPLES*2;++i ){
       double th = 2 * M_PI * i / (double)wavelen ;
       tbl_tgt[i] = cos( th ) ;
     }
@@ -89,45 +92,51 @@ void loop() {
   imu.getValues(fvalues);
 
   // raw_accel is for averaging raw input. discard gravity axis
-  raw_accel[0] += fvalues[1];
-  raw_accel[1] += fvalues[2];
+  raw_accel[0] += fvalues[3]; // gyro
+  raw_accel[1] += fvalues[1]; // y accel
+  raw_accel[2] += fvalues[2]; // z accel
 
   if ( --raw_accel_count != 0 ) return ;
 
   raw_accel_count = AVERAGE_WINDOW_SIZE ;
   raw_accel[0] /= AVERAGE_WINDOW_SIZE ;
   raw_accel[1] /= AVERAGE_WINDOW_SIZE ;
-
+  raw_accel[2] /= AVERAGE_WINDOW_SIZE ;
   
   accel_log[logpos][0] = raw_accel[0] ;
   accel_log[logpos][1] = raw_accel[1] ;
+  accel_log[logpos][2] = raw_accel[2] ;
 
-  raw_accel[0] = raw_accel[1] = 0 ;
+  raw_accel[0] = raw_accel[1] = raw_accel[2] = 0 ;
 
-  double accel_log_dc[2] = {0,0} ;
+  double accel_log_dc[3] = {0,0,0} ;
   for( int i=0;i<SAMPLES;++i ){
     accel_log_dc[0] += accel_log[i][0] ;
     accel_log_dc[1] += accel_log[i][1] ;
+    accel_log_dc[2] += accel_log[i][2] ;
   }
   accel_log_dc[0] *= SAMPLES_INV ;
   accel_log_dc[1] *= SAMPLES_INV ;
+  accel_log_dc[2] *= SAMPLES_INV ;
 
   // Convolution
   int wl_id = 0 ;
   int best_wl = -1 , best_wl_power = 0 ;
-  double best_t0 , best_t1 ;
+  double best_t0 , best_t1 , best_t2 ;
   int wavelen ;
   for( wavelen = WAVELEN_MIN ; wavelen <= WAVELEN_MAX ; wavelen += WAVELEN_STEP , ++wl_id ){
     double cos0_power = 0 , sin0_power = 0 ;
     double cos1_power = 0 , sin1_power = 0 ;
+    double cos2_power = 0 , sin2_power = 0 ;
     double* c_tbl = cos_tbl[wl_id] ;
 
     int si = sin_offs[wl_id] ;
-    for( int ci=0;ci<SAMPLES;++ci ){
+    for( int ci=0;ci<SAMPLES;++ci,++si ){
       double* samp = accel_log[(logpos+ci)%SAMPLES] ;
 
-      double samp0_norm = (samp[0] - accel_log_dc[0]) * SAMPLES_INV ;
+      double samp0_norm = (samp[0] - accel_log_dc[0]) ;//* SAMPLES_INV ;
       double samp1_norm = (samp[1] - accel_log_dc[1]) * SAMPLES_INV ;
+      double samp2_norm = (samp[2] - accel_log_dc[2]) * SAMPLES_INV ;
       
       cos0_power += c_tbl[ci] * samp0_norm ;
       sin0_power += c_tbl[si] * samp0_norm ;
@@ -135,28 +144,37 @@ void loop() {
       cos1_power += c_tbl[ci] * samp1_norm ;
       sin1_power += c_tbl[si] * samp1_norm ;
 
-      if( ++si >= SAMPLES ) si = 0 ;
+      cos2_power += c_tbl[ci] * samp2_norm ;
+      sin2_power += c_tbl[si] * samp2_norm ;
     }
     
     double pw0 = cos0_power*cos0_power + sin0_power*sin0_power ;
     double pw1 = cos1_power*cos1_power + sin1_power*sin1_power ;
+    double pw2 = cos2_power*cos2_power + sin2_power*sin2_power ;
     if( pw0 > best_wl_power ){
       best_wl_power = pw0 ;
       best_wl = wl_id ;
       best_t0 = atan2( sin0_power , cos0_power ) ;
       best_t1 = atan2( sin1_power , cos1_power ) ;
+      best_t2 = atan2( sin2_power , cos2_power ) ;
     }
   }
 
   if( best_wl != wl_id-1  && best_wl_power > LOOP_CHECK_THR ){
-    if( (no_out_countdown==0 || --no_out_countdown == 0) && prev_best_t0 != DBL_MAX && prev_best_t0 * best_t0 <= 0 ){
+    if( OUTPUT_LR_FREQUENTLY ){
+      boolean bOri = ( ( best_t1>best_t2 && best_t1-best_t2 >= M_PI ) || ( best_t1<=best_t2 && best_t2-best_t1 < M_PI ) ) ;
+      Serial.print( bOri?"L":"R" ) ;
+      //Serial.println( best_wl_power ) ;
+      //Serial.print( prev_best_t1 > best_t0 ?"R":"L" ) ;
+    } else if( (no_out_countdown==0 || --no_out_countdown == 0) && prev_best_t0 != DBL_MAX && prev_best_t0 * best_t0 <= 0 ){
       // Execute here only when t0 crosses zero
       double wavelen_sec = WAVELENGTH_MIN_SEC + best_wl * WAVELENGTH_STEP_SEC ;
       no_out_countdown = (best_wl + WAVELEN_MIN) / 3 ; // あんまりすぐに次の表示はしない
-      boolean bOri = ( ( best_t0>best_t1 && best_t0-best_t1 >= M_PI ) || ( best_t0<=best_t1 && best_t1-best_t0 < M_PI ) ) ;
+      boolean bOri = ( ( best_t1>best_t2 && best_t1-best_t2 >= M_PI ) || ( best_t1<=best_t2 && best_t2-best_t1 < M_PI ) ) ;
 
-      Serial.print( bOri?"R:":"L:" ) ;
-      Serial.println( wavelen_sec ) ;
+      Serial.print( bOri?"L":"R" ) ;
+      //Serial.print( bOri?"R:":"L:" ) ;
+      //Serial.println( wavelen_sec ) ;
       //Serial.println( best_wl_power ) ;
 
     }
