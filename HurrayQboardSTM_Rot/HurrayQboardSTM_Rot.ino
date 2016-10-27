@@ -22,8 +22,8 @@ const double WAVELENGTH_MIN_SEC = 0.5 ;
 // チェックする波長長の刻み
 const double WAVELENGTH_STEP_SEC = 0.1 ;
 // 回転されたと判断するスレッショルド
-const double LOOP_CHECK_THR =400000 ;
-//const double LOOP_CHECK_THR =1500000 ;
+const double LOOP_CHECK_THR = 50000 ;
+//const double LOOP_CHECK_THR = 400000 ;
 
 const int PROCESS_FPS = 15 ;    // 平滑化後FPS
 
@@ -117,6 +117,7 @@ void loop() {
   }
   accel_log_dc[0] *= SAMPLES_INV ;
   accel_log_dc[1] *= SAMPLES_INV ;
+  
   accel_log_dc[2] *= SAMPLES_INV ;
 
   // Convolution
